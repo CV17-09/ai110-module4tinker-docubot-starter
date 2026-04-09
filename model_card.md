@@ -1,147 +1,143 @@
 # DocuBot Model Card
 
-This model card is a short reflection on your DocuBot system. Fill it out after you have implemented retrieval and experimented with all three modes:
-
-1. Naive LLM over full docs  
-2. Retrieval only  
-3. RAG (retrieval plus LLM)
-
-Use clear, honest descriptions. It is fine if your system is imperfect.
+This model card reflects the design and behavior of the DocuBot system after implementing retrieval and testing all three modes.
 
 ---
 
 ## 1. System Overview
 
-**What is DocuBot trying to do?**  
-Describe the overall goal in 2 to 3 sentences.
+**What is DocuBot trying to do?**
+DocuBot is a question-answering system that uses project documentation to answer user queries. It aims to retrieve relevant information from documents and provide accurate, grounded responses while avoiding unsupported answers.
 
-> _Your answer here._
-
-**What inputs does DocuBot take?**  
-For example: user question, docs in folder, environment variables.
-
-> _Your answer here._
+**What inputs does DocuBot take?**
+DocuBot takes a user question as input, along with a folder of documentation files (`.md` or `.txt`). In RAG mode, it also uses an LLM (Gemini API) to generate answers based on retrieved content.
 
 **What outputs does DocuBot produce?**
+DocuBot produces either:
 
-> _Your answer here._
+* Retrieved document snippets (retrieval-only mode), or
+* A generated answer based on those snippets (RAG mode), or
+* A refusal message when it lacks sufficient evidence.
 
 ---
 
 ## 2. Retrieval Design
 
-**How does your retrieval system work?**  
-Describe your choices for indexing and scoring.
+**How does your retrieval system work?**
 
-- How do you turn documents into an index?
-- How do you score relevance for a query?
-- How do you choose top snippets?
+* Documents are split into paragraph-level sections using blank lines.
+* Each section is tokenized, cleaned, and indexed in an inverted index mapping words to `(filename, section_id)`.
+* Relevance is scored using a TF-IDF–style approach:
 
-> _Your answer here._
+  * Term frequency (TF) counts word occurrences in a section.
+  * Inverse document frequency (IDF) reduces weight of common words.
+* Sections are ranked by score and the top results are returned.
 
-**What tradeoffs did you make?**  
-For example: speed vs precision, simplicity vs accuracy.
+**What tradeoffs did you make?**
 
-> _Your answer here._
+* I chose paragraph-based splitting for simplicity and readability instead of more complex chunking.
+* TF-IDF improves relevance over simple counting, but is still lightweight compared to embeddings.
+* The system prioritizes simplicity and transparency over maximum accuracy.
 
 ---
 
 ## 3. Use of the LLM (Gemini)
 
-**When does DocuBot call the LLM and when does it not?**  
-Briefly describe how each mode behaves.
+**When does DocuBot call the LLM and when does it not?**
 
-- Naive LLM mode:
-- Retrieval only mode:
-- RAG mode:
+* **Naive LLM mode:**
+  Sends the entire document corpus to the LLM and asks it to answer the question.
 
-> _Your answer here._
+* **Retrieval only mode:**
+  Does not use the LLM. Returns the most relevant document sections directly.
 
-**What instructions do you give the LLM to keep it grounded?**  
-Summarize the rules from your prompt. For example: only use snippets, say "I do not know" when needed, cite files.
+* **RAG mode:**
+  Retrieves top sections first, then sends only those snippets to the LLM to generate a grounded answer.
 
-> _Your answer here._
+**What instructions do you give the LLM to keep it grounded?**
+
+* Only use the provided snippets to answer the question.
+* Do not introduce external knowledge.
+* If the answer cannot be found in the snippets, say:
+  "I do not know based on the docs I have."
+* Focus on accuracy over completeness.
 
 ---
 
 ## 4. Experiments and Comparisons
 
-Run the **same set of queries** in all three modes. Fill in the table with short notes.
+| Query                                      | Naive LLM: helpful or harmful? | Retrieval only: helpful or harmful? | RAG: helpful or harmful? | Notes                                                                                              |
+| ------------------------------------------ | ------------------------------ | ----------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------- |
+| Where is the auth token generated?         | Helpful but ungrounded         | Helpful and accurate                | Most helpful             | Naive sounded confident but didn’t show source. Retrieval showed exact section. RAG combined both. |
+| How do I connect to the database?          | Mixed                          | Helpful                             | Most helpful             | Retrieval returned correct snippet but required interpretation. RAG explained it clearly.          |
+| Which endpoint lists all users?            | Helpful but risky              | Helpful                             | Most helpful             | Naive could blend info. Retrieval showed exact endpoint. RAG summarized clearly.                   |
+| How does a client refresh an access token? | Harmful                        | Neutral                             | Neutral                  | Docs lacked strong evidence. Naive guessed. Retrieval weak. RAG sometimes refused or failed.       |
 
-You can reuse or adapt the queries from `dataset.py`.
+**What patterns did you notice?**
 
-| Query | Naive LLM: helpful or harmful? | Retrieval only: helpful or harmful? | RAG: helpful or harmful? | Notes |
-|------|---------------------------------|--------------------------------------|---------------------------|-------|
-| Example: Where is the auth token generated? | | | | |
-| Example: How do I connect to the database? | | | | |
-| Example: Which endpoint lists all users? | | | | |
-| Example: How does a client refresh an access token? | | | | |
-
-**What patterns did you notice?**  
-
-- When does naive LLM look impressive but untrustworthy?  
-- When is retrieval only clearly better?  
-- When is RAG clearly better than both?
-
-> _Your answer here._
+* Naive LLM often sounds impressive but is not trustworthy because it does not clearly show evidence.
+* Retrieval-only is the most reliable for correctness but harder to read.
+* RAG provides the best balance when retrieval succeeds and the LLM is available.
+* When retrieval is weak, all modes struggle, but naive mode is the most misleading.
 
 ---
 
 ## 5. Failure Cases and Guardrails
 
-**Describe at least two concrete failure cases you observed.**  
-For each one, say:
+**Failure case 1**
 
-- What was the question?  
-- What did the system do?  
-- What should have happened instead?
+* **Question:** How does a client refresh an access token?
+* **What happened:** Naive LLM generated a confident answer even though the docs did not clearly support it.
+* **What should have happened:** The system should have refused due to lack of strong evidence.
 
-> _Failure case 1 here._
+**Failure case 2**
 
-> _Failure case 2 here._
+* **Question:** Any query during RAG mode
+* **What happened:** The Gemini API returned a 429 quota error and failed to generate a response.
+* **What should have happened:** The system should fall back to retrieval-only mode or provide a graceful failure message.
 
-**When should DocuBot say “I do not know based on the docs I have”?**  
-Give at least two specific situations.
+**When should DocuBot say “I do not know based on the docs I have”?**
 
-> _Your answer here._
+* When no relevant sections are retrieved for the query.
+* When retrieved sections have very low relevance scores.
+* When the query is unrelated to the documentation (e.g., weather or general knowledge questions).
 
-**What guardrails did you implement?**  
-Examples: refusal rules, thresholds, limits on snippets, safe defaults.
+**What guardrails did you implement?**
 
-> _Your answer here._
+* A relevance threshold (`has_useful_context`) to ensure only meaningful results are used.
+* Refusal when no sections meet the threshold.
+* Limiting answers to retrieved snippets in RAG mode.
+* Avoiding full-document generation in retrieval-based modes.
 
 ---
 
 ## 6. Limitations and Future Improvements
 
-**Current limitations**  
-List at least three limitations of your DocuBot system.
+**Current limitations**
 
-1. _Limitation 1_
-2. _Limitation 2_
-3. _Limitation 3_
+1. Retrieval is based on keyword matching and TF-IDF, which may miss semantic meaning.
+2. The system depends on external LLM APIs, which can fail due to rate limits or availability.
+3. Section-based splitting may not always capture the best context boundaries.
 
-**Future improvements**  
-List two or three changes that would most improve reliability or usefulness.
+**Future improvements**
 
-1. _Improvement 1_
-2. _Improvement 2_
-3. _Improvement 3_
+1. Use embeddings or vector databases for more semantic retrieval.
+2. Add fallback logic when the LLM fails (e.g., automatically switch to retrieval-only mode).
+3. Improve chunking strategy (e.g., overlapping windows or sentence-level splitting).
 
 ---
 
 ## 7. Responsible Use
 
-**Where could this system cause real world harm if used carelessly?**  
-Think about wrong answers, missing information, or over trusting the LLM.
+**Where could this system cause real world harm if used carelessly?**
 
-> _Your answer here._
+If DocuBot is used in critical domains (e.g., security, healthcare, or finance), incorrect or hallucinated answers could mislead users. Naive generation mode is especially risky because it can produce confident but unsupported information.
 
-**What instructions would you give real developers who want to use DocuBot safely?**  
-Write 2 to 4 short bullet points.
+**What instructions would you give real developers who want to use DocuBot safely?**
 
-- _Guideline 1_
-- _Guideline 2_
-- _Guideline 3 (optional)_
+* Always verify answers against the original documentation.
+* Prefer retrieval-based or RAG modes over naive generation.
+* Implement strict refusal rules when evidence is weak.
+* Monitor API failures and add fallback behavior.
 
 ---
